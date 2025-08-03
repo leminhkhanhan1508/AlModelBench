@@ -1,15 +1,15 @@
 package com.example.aimodelbench
 
 
-import android.app.Activity
-import android.content.Intent
+import android.content.Context
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.*
-import androidx.compose.material3.*
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Scaffold
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.toBitmap
@@ -18,6 +18,7 @@ import com.example.aimodelbench.ml.SsdMobilenetV11Metadata1
 import com.example.aimodelbench.model.AIModelEnum
 import com.example.aimodelbench.model.FunctionItemUIModel
 import com.example.aimodelbench.ui.theme.AIModelBenchTheme
+import com.example.aimodelbench.utils.BatteryInfoHelper
 import com.example.aimodelbench.utils.ModelBenchmarkEvaluator
 import com.example.aimodelbench.utils.Utils
 import org.tensorflow.lite.support.image.TensorImage
@@ -29,7 +30,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             AIModelBenchTheme {
-                val gridItems = listOf(AIModelEnum.TEST, AIModelEnum.TEST1, AIModelEnum.TEST2).map {
+                val gridItems = listOf(AIModelEnum.TEST, AIModelEnum.TEST1, AIModelEnum.TEST2, AIModelEnum.TEST3).map {
                     FunctionItemUIModel(
                         title = it.modelName,
                         enumCode = it
@@ -50,8 +51,9 @@ class MainActivity : ComponentActivity() {
     private fun evaluateModelPerformance(code: AIModelEnum) {
        when(code){
            AIModelEnum.TEST -> evaluateModel1()
-           AIModelEnum.TEST1 -> Log.d("AIModelBench", "TEST1")
-           AIModelEnum.TEST2 -> Log.d("AIModelBench", "TEST2")
+           AIModelEnum.TEST1 -> logBatteryInfo(this)
+           AIModelEnum.TEST2 -> actionGetRailInfo()
+           AIModelEnum.TEST3 -> actionGetEnergyData()
        }
     }
 
@@ -74,6 +76,28 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+
+    }
+
+    companion object {
+        init {
+            System.loadLibrary("powerstats_jni")
+        }
+    }
+    external fun getRailInfo(): String
+    external fun getEnergyData(): String
+    fun logBatteryInfo(context: Context){
+        BatteryInfoHelper.getEnergyInfo(context)
+    }
+
+    fun actionGetRailInfo (){
+        val result = getRailInfo()
+        Log.wtf("KHANHANDEBUG", result)
+    }
+
+    fun actionGetEnergyData(){
+        val result = getEnergyData()
+        Log.wtf("KHANHANDEBUG", result)
 
     }
 }
