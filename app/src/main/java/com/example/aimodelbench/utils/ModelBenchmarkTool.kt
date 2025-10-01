@@ -1,16 +1,12 @@
 package com.example.aimodelbench.utils
 
-import android.app.ActivityManager
-import android.content.Context
-import android.os.*
+import android.os.Build
+import android.os.Debug
 import android.util.Log
+import com.example.aimodelbench.utils.Utils.readAppCpu
 import org.json.JSONObject
-import org.tensorflow.lite.Interpreter
 import java.io.File
 import java.io.FileWriter
-import java.text.SimpleDateFormat
-import java.util.*
-import kotlin.system.measureNanoTime
 
 /**
  * model_name	text	Tên model đang benchmark
@@ -25,72 +21,64 @@ import kotlin.system.measureNanoTime
 class ModelBenchmarkEvaluator(
     private val modelName: String,
     private val delegateUsed: String = "CPU",
-    private val numThreads: Int = 1
+    private val numThreads: Int = 1,
+    private val totalRam : Long
 ) {
-    val simpleDateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS", Locale.US)
-
+    private val TAG = "LMKTAG"
+    private val FINISH_MESSAGE = "myFunction: execution finished"
     fun evaluate(
         outputFile: File,
         runInference: () -> Unit
     ) {
-        val startTime = System.currentTimeMillis()
-        val startTimeStr = simpleDateFormat.format(Date(startTime))
-
-        val startCpuTicks = getCpuTime()
+        val pid = android.os.Process.myPid()
         val memBefore = getMemoryInfo()
-
-        val inferenceTimeNs = measureNanoTime {
-            runInference()
-        }
-
-        val endTime = System.currentTimeMillis()
-        val endTimeStr = simpleDateFormat.format(Date(endTime))
-
-        val endCpuTicks = getCpuTime()
+        val startAppCpu = readAppCpu(pid)
+        val startTotal = System.currentTimeMillis()
+        // main function
+        runInference()
+        val endTotal = System.currentTimeMillis()
+        val endAppCpu = readAppCpu(pid)
         val memAfter = getMemoryInfo()
-
+        val cpuTicks = endAppCpu - startAppCpu
+        val cpuMs = cpuTicks * 1000.0 / 100.0 // nếu kernel HZ=100
+        val wallMs = endTotal - startTotal
+        val cpuPercent = (cpuMs / wallMs) * 100.0 / Runtime.getRuntime().availableProcessors()
+        val memoryProcess = (memAfter.totalPss - memBefore.totalPss).coerceAtLeast(0)
+        val memoryPercent = getProcessMemoryUsagePercent(memoryProcess.toFloat(),totalRam.toFloat())
+        /**
+         * cpu_time_ticks: tổng ticks CPU.
+         * cpu_time_ms: tổng ms CPU sử dụng.
+         * total_time_ms: thời gian thực tế trôi qua.
+         * avg_cpu_percent: mức sử dụng CPU trung bình (theo %).
+         */
         val json = JSONObject().apply {
+            put("device_model", Build.MODEL)
+            put("manufacturer", Build.MANUFACTURER)
+            put("sdk_version", Build.VERSION.SDK_INT)
             put("model_name", modelName)
             put("delegate_used", delegateUsed)
             put("num_threads", numThreads)
-            put("start_time", startTimeStr)
-            put("end_time", endTimeStr)
-            put("inference_time_ms", inferenceTimeNs / 1_000_000)
-            put("cpu_time_ticks", endCpuTicks - startCpuTicks)
-
-            put("device_info", JSONObject().apply {
-                put("device_model", Build.MODEL)
-                put("manufacturer", Build.MANUFACTURER)
-                put("sdk_version", Build.VERSION.SDK_INT)
-            })
-
-            put("memory_kb", JSONObject().apply {
-                put("dalvik_pss", memAfter.dalvikPss - memBefore.dalvikPss)
-                put("native_pss", memAfter.nativePss - memBefore.nativePss)
-                put("total_pss", memAfter.totalPss - memBefore.totalPss)
-            })
+            put("cpu_time_ticks", cpuTicks)
+            put("cpu_time_ms", cpuMs)
+            put("total_time_ms", wallMs)
+            put("avg_cpu_percent", cpuPercent)
+            put("memory_process", memoryProcess)
+            put("memory_percent", memoryPercent)
         }
 
         FileWriter(outputFile).use {
             it.write(json.toString(4))
         }
-
-        Log.d("BenchmarkTool", "Saved benchmark to: ${json}")
-    }
-
-    private fun getCpuTime(): Long {
-        val pid = Process.myPid()
-        return try {
-            val stat = File("/proc/$pid/stat").readText().split(" ")
-            stat[13].toLong() + stat[14].toLong()
-        } catch (e: Exception) {
-            Log.e("BenchmarkTool", "CPU stat read failed", e)
-            -1
-        }
+        Log.i(TAG, "$json")
+        Log.i(TAG, FINISH_MESSAGE)
     }
 
     private fun getMemoryInfo(): Debug.MemoryInfo {
         return Debug.MemoryInfo().apply { Debug.getMemoryInfo(this) }
+    }
+
+    private fun getProcessMemoryUsagePercent(memoryProcess: Float, totalMemory: Float): Float {
+        return (memoryProcess / totalMemory) * 100f
     }
 }
 
